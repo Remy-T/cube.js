@@ -435,6 +435,8 @@ export class PreAggregationLoader {
 
   private loadCache: any;
 
+  private isJob: boolean;
+
   private waitForRenew: boolean;
 
   private forceBuild: boolean;
@@ -467,6 +469,7 @@ export class PreAggregationLoader {
     this.preAggregation = preAggregation;
     this.preAggregationsTablesToTempTables = preAggregationsTablesToTempTables;
     this.loadCache = loadCache;
+    this.isJob = !!options.isJob;
     this.waitForRenew = options.waitForRenew;
     this.forceBuild = options.forceBuild;
     this.orphanedTimeout = options.orphanedTimeout;
@@ -495,9 +498,20 @@ export class PreAggregationLoader {
   ): Promise<null | LoadPreAggregationResult> {
     const notLoadedKey = (this.preAggregation.invalidateKeyQueries || [])
       .find(keyQuery => !this.loadCache.hasKeyQueryResult(keyQuery));
-    if (notLoadedKey && !this.waitForRenew) {
-      const structureVersion = getStructureVersion(this.preAggregation);
 
+    if (this.isJob || !(notLoadedKey && !this.waitForRenew)) {
+      // Case 1: pre-agg build job processing.
+      // Case 2: either we have no data cached for this rollup or waitForRenew
+      // is true, either way, synchronously renew what data is needed so that
+      // the most current data will be returned fo the current request.
+      const result = await this.loadPreAggregationWithKeys();
+      return {
+        ...result,
+        refreshKeyValues: await this.getInvalidationKeyValues()
+      };
+    } else {
+      // Case 3: pre-agg is exists
+      const structureVersion = getStructureVersion(this.preAggregation);
       const getVersionsStarted = new Date();
       const { byStructure } = await this.loadCache.getVersionEntries(this.preAggregation);
       this.logger('Load PreAggregations Tables', {
@@ -511,9 +525,9 @@ export class PreAggregationLoader {
         if (!versionEntryByStructureVersion && throwOnMissingPartition) {
           throw new Error(
             'Your configuration restricts query requests to only be served from ' +
-            'pre-aggregations, and required pre-aggregation partitions were not ' +
-            'built yet. Please make sure your refresh worker is configured ' +
-            'correctly and running.'
+              'pre-aggregations, and required pre-aggregation partitions were not ' +
+              'built yet. Please make sure your refresh worker is configured ' +
+              'correctly and running.'
           );
         }
         if (!versionEntryByStructureVersion) {
@@ -551,14 +565,6 @@ export class PreAggregationLoader {
         // no rollup has been built yet - build it synchronously as part of responding to this request
         return this.loadPreAggregationWithKeys();
       }
-    } else {
-      // either we have no data cached for this rollup or waitForRenew is true, either way,
-      // synchronously renew what data is needed so that the most current data will be returned for the current request
-      const result = await this.loadPreAggregationWithKeys();
-      return {
-        ...result,
-        refreshKeyValues: await this.getInvalidationKeyValues()
-      };
     }
   }
 
@@ -643,8 +649,17 @@ export class PreAggregationLoader {
         queryKey: this.preAggregationQueryKey(invalidationKeys),
         newVersionEntry
       });
-      await this.executeInQueue(invalidationKeys, this.priority(10), newVersionEntry);
-      return mostRecentResult();
+      if (this.isJob) {
+        this.executeInQueue(invalidationKeys, this.priority(10), newVersionEntry);
+        return {
+          targetTableName: this.targetTableName(newVersionEntry),
+          refreshKeyValues: [],
+          lastUpdatedAt: newVersionEntry.last_updated_at,
+        };
+      } else {
+        await this.executeInQueue(invalidationKeys, this.priority(10), newVersionEntry);
+        return mostRecentResult();
+      }
     }
 
     if (versionEntry) {
@@ -727,8 +742,8 @@ export class PreAggregationLoader {
   }
 
   protected async executeInQueue(invalidationKeys, priority, newVersionEntry) {
-    const query = await this.preAggregations.getQueue(this.preAggregation.dataSource);
-    return query.executeInQueue(
+    const queue = await this.preAggregations.getQueue(this.preAggregation.dataSource);
+    return queue.executeInQueue(
       'query',
       this.preAggregationQueryKey(invalidationKeys),
       {
@@ -1067,6 +1082,7 @@ export class PreAggregationLoader {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected prepareCreateTableIndexes(newVersionEntry, queryOptions) {
     if (!this.preAggregation.createTableIndexes || !this.preAggregation.createTableIndexes.length) {
       return [];
@@ -1152,9 +1168,12 @@ interface PreAggsPartiotionRangeLoaderOpts {
   metadata?: any;
   orphanedTimeout?: number;
   lambdaQuery?: LambdaQuery;
+  isJob?: boolean;
 }
 
 export class PreAggregationPartitionRangeLoader {
+  protected isJob: boolean;
+
   protected waitForRenew: boolean;
 
   protected requestId: string;
@@ -1178,6 +1197,7 @@ export class PreAggregationPartitionRangeLoader {
       maxSourceRowLimit: 10000,
     },
   ) {
+    this.isJob = !!options.isJob;
     this.waitForRenew = options.waitForRenew;
     this.requestId = options.requestId;
     this.lambdaQuery = options.lambdaQuery;
@@ -1662,6 +1682,7 @@ export class PreAggregations {
         {
           maxPartitions: this.options.maxPartitions,
           maxSourceRowLimit: this.options.maxSourceRowLimit,
+          isJob: queryBody.isJob,
           waitForRenew: queryBody.renewQuery,
           // TODO workaround to avoid continuous waiting on building pre-aggregation dependencies
           forceBuild: i === preAggregations.length - 1 ? queryBody.forceBuildPreAggregations : false,
