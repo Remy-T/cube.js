@@ -61,6 +61,7 @@ pub enum Statement {
     CacheRemove {
         key: Ident,
     },
+    CacheTruncate {},
     System(SystemCommand),
     Dump(Box<Query>),
 }
@@ -135,15 +136,27 @@ impl<'a> CubeStoreParser<'a> {
     }
 
     fn parse_cache(&mut self) -> Result<Statement, ParserError> {
-        if self.parse_custom_token("set") {
-            Ok(Statement::CacheSet {
+        let command = match self.parser.next_token() {
+            Token::Word(w) => w.value.to_ascii_lowercase(),
+            _ => {
+                return Err(ParserError::ParserError(
+                    "Unknown cache command, available: SET|REMOVE|TRUNCATE".to_string(),
+                ))
+            }
+        };
+
+        match command.as_str() {
+            "set" => Ok(Statement::CacheSet {
                 key: self.parser.parse_identifier()?,
                 value: self.parser.parse_literal_string()?,
-            })
-        } else {
-            Err(ParserError::ParserError(
+            }),
+            "remove" => Ok(Statement::CacheRemove {
+                key: self.parser.parse_identifier()?,
+            }),
+            "truncate" => Ok(Statement::CacheTruncate {}),
+            _ => Err(ParserError::ParserError(
                 "Unknown cache command".to_string(),
-            ))
+            )),
         }
     }
 

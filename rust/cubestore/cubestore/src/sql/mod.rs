@@ -1048,6 +1048,22 @@ impl SqlService for SqlServiceImpl {
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
             CubeStoreStatement::CacheSet { key, value } => {
+                let key = key.value;
+
+                let table = self.db.cache_set(key.clone(), None).await?;
+
+                Ok(Arc::new(DataFrame::new(vec![], vec![])))
+            }
+            CubeStoreStatement::CacheRemove { key } => {
+                let key = key.value;
+
+                let table = self.db.cache_set(key.clone(), None).await?;
+
+                Ok(Arc::new(DataFrame::new(vec![], vec![])))
+            }
+            CubeStoreStatement::CacheTruncate {} => {
+                self.db.cache_truncate().await?;
+
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
             CubeStoreStatement::Statement(Statement::Query(q)) => {

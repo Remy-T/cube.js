@@ -1122,6 +1122,12 @@ pub trait MetaStore: DIService + Send + Sync {
     ) -> Result<Vec<(IdRow<Schema>, IdRow<Table>, Vec<IdRow<Index>>)>, CubeError>;
 
     async fn debug_dump(&self, out_path: String) -> Result<(), CubeError>;
+
+    async fn cache_set(&self, key: String, expire: Option<DateTime<Utc>>) -> Result<(), CubeError>;
+
+    async fn cache_truncate(&self) -> Result<(), CubeError>;
+
+    async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
 }
 
 crate::di_service!(RocksMetaStore, [MetaStore]);
@@ -3370,11 +3376,44 @@ impl MetaStore for RocksMetaStore {
         .await
     }
 
-    // async fn cache_set(&self, table_id: u64) -> Result<IdRow<Table>, CubeError> {
-    //     self.write_operation(move |db_ref, batch_pipe| {
-    //         let table = PartitionRocksTable::new(db_ref.clone());
-    //         let row_id = table.insert(partition, batch_pipe)?;
-    //         Ok(row_id)
+    async fn cache_set(&self, key: String, expire: Option<DateTime<Utc>>) -> Result<(), CubeError> {
+        let item = CacheItem::new(key, expire);
+
+        self.write_operation(move |db_ref, batch_pipe| {
+            let table = CacheItemRocksTable::new(db_ref.clone());
+            let row_id = table.insert(item, batch_pipe)?;
+            Ok(row_id)
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn cache_truncate(&self) -> Result<(), CubeError> {
+        self.write_operation(move |db_ref, batch_pipe| {
+            let jobs_table = CacheItemRocksTable::new(db_ref);
+            let all_jobs = jobs_table.all_rows()?;
+            for job in all_jobs.iter() {
+                jobs_table.delete(job.get_id(), batch_pipe)?;
+            }
+
+            Ok(())
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    async fn cache_delete(&self, key: String) -> Result<(), CubeError> {
+        self.write_operation(move |db_ref, batch_pipe| Ok(()))
+            .await?;
+
+        Ok(())
+    }
+
+    // async fn cache_get(&self, key: String) -> Result<IdRow<Table>, CubeError> {
+    //     self.read_operation(move |db_ref| {
+    //         CacheItemRocksTable::new(db_ref).get_row_or_not_found(partition_id)
     //     })
     //         .await
     // }
