@@ -3,7 +3,7 @@ use super::{
     RocksSecondaryIndex, RocksTable, TableId,
 };
 use crate::data_frame_from;
-use crate::metastore::{IdRow, ImportFormat, MetaStoreEvent, Schema};
+use crate::metastore::{ColumnFamilyName, IdRow, ImportFormat, MetaStoreEvent, Schema};
 use crate::queryplanner::udfs::aggregate_udf_by_kind;
 use crate::queryplanner::udfs::CubeAggregateUDFKind;
 use crate::rocks_table_impl;
@@ -341,9 +341,13 @@ impl Column {
     }
 }
 
-rocks_table_impl!(Table, TableRocksTable, TableId::Tables, {
-    vec![Box::new(TableRocksIndex::Name)]
-});
+rocks_table_impl!(
+    Table,
+    TableRocksTable,
+    TableId::Tables,
+    { vec![Box::new(TableRocksIndex::Name)] },
+    ColumnFamilyName::Default
+);
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TableRocksIndex {

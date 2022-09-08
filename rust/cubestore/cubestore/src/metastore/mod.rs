@@ -15,8 +15,9 @@ use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use log::info;
 use rocksdb::{
-    DBIterator, Direction, IteratorMode, MergeOperands, Options, ReadOptions, Snapshot, WriteBatch,
-    WriteBatchIterator, DB,
+    ColumnFamily, ColumnFamilyDescriptor, CompactionDecision, DBCompactionStyle, DBIterator,
+    Direction, IteratorMode, MergeOperands, Options, ReadOptions, Snapshot, WriteBatch,
+    WriteBatchIterator, DB, DEFAULT_COLUMN_FAMILY_NAME,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use std::hash::{Hash, Hasher};
@@ -70,7 +71,7 @@ use schema::{SchemaRocksIndex, SchemaRocksTable};
 use smallvec::alloc::fmt::Formatter;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Write};
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -148,7 +149,7 @@ macro_rules! base_rocks_secondary_index {
 
 #[macro_export]
 macro_rules! rocks_table_impl {
-    ($table: ty, $rocks_table: ident, $table_id: expr, $indexes: block) => {
+    ($table: ty, $rocks_table: ident, $table_id: expr, $indexes: block, $cfn: expr) => {
         pub(crate) struct $rocks_table<'a> {
             db: crate::metastore::DbTableRef<'a>,
         }
@@ -161,6 +162,10 @@ macro_rules! rocks_table_impl {
 
         impl<'a> RocksTable for $rocks_table<'a> {
             type T = $table;
+
+            fn cf_name(&self) -> ColumnFamilyName {
+                ColumnFamilyName::Default
+            }
 
             fn db(&self) -> &DB {
                 self.db.db
@@ -1485,6 +1490,14 @@ trait RocksTable: Debug + Send + Sync {
         D: Deserializer<'de>;
     fn indexes() -> Vec<Box<dyn BaseRocksSecondaryIndex<Self::T>>>;
 
+    fn cf(&self) -> Result<&ColumnFamily, CubeError> {
+        self.db()
+            .cf_handle(self.cf_name().into())
+            .ok_or_else(|| CubeError::internal(format!("cf {} not found", self.cf_name())))
+    }
+
+    fn cf_name(&self) -> ColumnFamilyName;
+
     fn insert(
         &self,
         row: Self::T,
@@ -1512,17 +1525,29 @@ trait RocksTable: Debug + Send + Sync {
 
         let (row_id, inserted_row) = self.insert_row(serialized_row)?;
         batch_pipe.add_event(MetaStoreEvent::Insert(self.table_id(), row_id));
-        if self.snapshot().get(&inserted_row.key)?.is_some() {
+        if self
+            .snapshot()
+            .get_cf(self.cf()?, &inserted_row.key)?
+            .is_some()
+        {
             return Err(CubeError::internal(format!("Primary key constraint violation. Primary key already exists for a row id {}: {:?}", row_id, &row)));
         }
-        batch_pipe.batch().put(inserted_row.key, inserted_row.val);
+        batch_pipe
+            .batch()
+            .put_cf(self.cf()?, inserted_row.key, inserted_row.val);
 
         let index_row = self.insert_index_row(&row, row_id)?;
         for to_insert in index_row {
-            if self.snapshot().get(&to_insert.key)?.is_some() {
+            if self
+                .snapshot()
+                .get_cf(self.cf()?, &to_insert.key)?
+                .is_some()
+            {
                 return Err(CubeError::internal(format!("Primary key constraint violation in secondary index. Primary key already exists for a row id {}: {:?}", row_id, &row)));
             }
-            batch_pipe.batch().put(to_insert.key, to_insert.val);
+            batch_pipe
+                .batch()
+                .put_cf(self.cf()?, to_insert.key, to_insert.val);
         }
 
         Ok(IdRow::new(row_id, row))
@@ -1881,9 +1906,10 @@ trait RocksTable: Debug + Send + Sync {
 
         let mut opts = ReadOptions::default();
         opts.set_prefix_same_as_start(true);
-        let iter = db.iterator_opt(
-            IteratorMode::From(&key_min.to_bytes()[0..(key_len + 5)], Direction::Forward),
+        let iter = db.iterator_cf_opt(
+            self.cf()?,
             opts,
+            IteratorMode::From(&key_min.to_bytes()[0..(key_len + 5)], Direction::Forward),
         );
 
         for (key, value) in iter {
@@ -1919,16 +1945,16 @@ trait RocksTable: Debug + Send + Sync {
         let key_len = zero_vec.len();
         let key_min = RowKey::SecondaryIndex(self.index_id(secondary_id), zero_vec.clone(), 0);
 
-        let iter = db.iterator(IteratorMode::From(
-            &key_min.to_bytes()[0..(key_len + 5)],
-            Direction::Forward,
-        ));
+        let iter = db.iterator_cf(
+            self.cf()?,
+            IteratorMode::From(&key_min.to_bytes()[0..(key_len + 5)], Direction::Forward),
+        );
 
         for (key, _) in iter {
             let row_key = RowKey::from_bytes(&key);
             if let RowKey::SecondaryIndex(index_id, _, _) = row_key {
                 if index_id == self.index_id(secondary_id) {
-                    batch.delete(key);
+                    batch.delete_cf(self.cf()?, key);
                 } else {
                     return Ok(());
                 }
@@ -1993,12 +2019,14 @@ trait RocksTable: Debug + Send + Sync {
 
         let mut opts = ReadOptions::default();
         opts.set_prefix_same_as_start(true);
-        let iterator = db.iterator_opt(
+
+        let iterator = db.iterator_cf_opt(
+            self.cf()?,
+            opts,
             IteratorMode::From(
                 &key_min.to_bytes()[0..get_fixed_prefix()],
                 Direction::Forward,
             ),
-            opts,
         );
 
         Ok(TableScanIter {
@@ -2092,7 +2120,7 @@ impl WriteBatchIterator for WriteBatchContainer {
     }
 }
 
-fn meta_store_merge(
+fn meta_store_default_cf_merge(
     _new_key: &[u8],
     existing_val: Option<&[u8]>,
     operands: &mut MergeOperands,
@@ -2106,6 +2134,41 @@ fn meta_store_merge(
     }
     result.write_u64::<BigEndian>(counter).unwrap();
     Some(result)
+}
+
+fn meta_store_cache_cf_compaction(level: u32, key: &[u8], value: &[u8]) -> CompactionDecision {
+    println!("level {} key {:?} value {:?}", level, key, value);
+
+    CompactionDecision::Keep
+}
+
+enum ColumnFamilyName {
+    Default,
+    Cache,
+}
+
+impl Into<&str> for ColumnFamilyName {
+    fn into(self) -> &'static str {
+        match self {
+            ColumnFamilyName::Default => DEFAULT_COLUMN_FAMILY_NAME,
+            ColumnFamilyName::Cache => "cache",
+        }
+    }
+}
+
+impl From<ColumnFamilyName> for String {
+    fn from(r: ColumnFamilyName) -> Self {
+        match r {
+            ColumnFamilyName::Default => DEFAULT_COLUMN_FAMILY_NAME.to_string(),
+            ColumnFamilyName::Cache => "cache".to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for ColumnFamilyName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_string())
+    }
 }
 
 impl RocksMetaStore {
@@ -2125,12 +2188,32 @@ impl RocksMetaStore {
         metastore_fs: Arc<dyn MetaStoreFs>,
         config: Arc<dyn ConfigObj>,
     ) -> RocksMetaStore {
+        let default_cf = {
+            let mut opts = Options::default();
+            opts.create_if_missing(true);
+            opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(13));
+            opts.set_merge_operator_associative("meta_store merge", meta_store_default_cf_merge);
+
+            ColumnFamilyDescriptor::new(ColumnFamilyName::Default, opts)
+        };
+
+        let cache_cf = {
+            let mut opts = Options::default();
+            opts.create_if_missing(true);
+            opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(13));
+            opts.set_merge_operator_associative("meta_store merge", meta_store_default_cf_merge);
+            opts.set_compaction_filter("expire-check", meta_store_cache_cf_compaction);
+
+            ColumnFamilyDescriptor::new(ColumnFamilyName::Cache, opts)
+        };
+
         let mut opts = Options::default();
         opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
         opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(13));
-        opts.set_merge_operator_associative("meta_store merge", meta_store_merge);
+        opts.set_merge_operator_associative("meta_store merge", meta_store_default_cf_merge);
 
-        let db = DB::open(&opts, path).unwrap();
+        let db = DB::open_cf_descriptors(&opts, path, vec![default_cf, cache_cf]).unwrap();
         let db_arc = Arc::new(db);
 
         let (rw_loop_tx, rw_loop_rx) = std::sync::mpsc::sync_channel::<
