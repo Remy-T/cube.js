@@ -6,15 +6,20 @@ use crate::rocks_table_impl;
 use crate::table::Row;
 use crate::{base_rocks_secondary_index, CubeError};
 use byteorder::{BigEndian, WriteBytesExt};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use rocksdb::DB;
 use serde::{Deserialize, Deserializer};
+use std::ops::Add;
+use std::time::SystemTime;
 
 impl CacheItem {
-    pub fn new(key: String, expire: Option<DateTime<Utc>>) -> CacheItem {
-        CacheItem { key, expire }
+    pub fn new(key: String, ttl: Option<u32>) -> CacheItem {
+        CacheItem {
+            key,
+            expire: ttl.map(|ttl| Utc::now().add(Duration::seconds(ttl as i64))),
+        }
     }
 
     pub fn get_key(&self) -> &String {

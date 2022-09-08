@@ -1124,7 +1124,7 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn debug_dump(&self, out_path: String) -> Result<(), CubeError>;
 
     async fn all_cache(&self) -> Result<Vec<IdRow<CacheItem>>, CubeError>;
-    async fn cache_set(&self, key: String, expire: Option<DateTime<Utc>>) -> Result<(), CubeError>;
+    async fn cache_set(&self, item: CacheItem) -> Result<(), CubeError>;
     async fn cache_truncate(&self) -> Result<(), CubeError>;
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
 }
@@ -3382,9 +3382,7 @@ impl MetaStore for RocksMetaStore {
         .await
     }
 
-    async fn cache_set(&self, key: String, expire: Option<DateTime<Utc>>) -> Result<(), CubeError> {
-        let item = CacheItem::new(key, expire);
-
+    async fn cache_set(&self, item: CacheItem) -> Result<(), CubeError> {
         self.write_operation(move |db_ref, batch_pipe| {
             let table = CacheItemRocksTable::new(db_ref.clone());
             let row_id = table.insert(item, batch_pipe)?;

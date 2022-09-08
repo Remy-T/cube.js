@@ -44,8 +44,8 @@ use crate::metastore::job::JobType;
 use crate::metastore::multi_index::MultiIndex;
 use crate::metastore::source::SourceCredentials;
 use crate::metastore::{
-    is_valid_plain_binary_hll, table::Table, HllFlavour, IdRow, ImportFormat, Index, IndexDef,
-    IndexType, MetaStoreTable, RowKey, Schema, TableId,
+    is_valid_plain_binary_hll, table::Table, CacheItem, HllFlavour, IdRow, ImportFormat, Index,
+    IndexDef, IndexType, MetaStoreTable, RowKey, Schema, TableId,
 };
 use crate::queryplanner::panic::PanicWorkerNode;
 use crate::queryplanner::pretty_printers::{pp_phys_plan, pp_plan};
@@ -1047,17 +1047,17 @@ impl SqlService for SqlServiceImpl {
                     .await?;
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
-            CubeStoreStatement::CacheSet { key, value } => {
+            CubeStoreStatement::CacheSet { key, value, ttl } => {
                 let key = key.value;
 
-                let table = self.db.cache_set(key.clone(), None).await?;
+                let table = self.db.cache_set(CacheItem::new(key, ttl)).await?;
 
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
             CubeStoreStatement::CacheRemove { key } => {
                 let key = key.value;
 
-                let table = self.db.cache_set(key.clone(), None).await?;
+                // let table = self.db.cache_set(key.clone(), None).await?;
 
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }

@@ -57,6 +57,7 @@ pub enum Statement {
     CacheSet {
         key: Ident,
         value: String,
+        ttl: Option<u32>,
     },
     CacheRemove {
         key: Ident,
@@ -94,7 +95,7 @@ impl<'a> CubeStoreParser<'a> {
                     self.parser.next_token();
                     self.parse_system()
                 }
-                _ if w.value.eq_ignore_ascii_case("cache") => {
+                Keyword::CACHE => {
                     self.parser.next_token();
                     self.parse_cache()
                 }
@@ -146,10 +147,36 @@ impl<'a> CubeStoreParser<'a> {
         };
 
         match command.as_str() {
-            "set" => Ok(Statement::CacheSet {
-                key: self.parser.parse_identifier()?,
-                value: self.parser.parse_literal_string()?,
-            }),
+            "set" => {
+                let ttl = if self.parse_custom_token(&"ttl") {
+                    match self.parser.parse_number_value()? {
+                        Value::Number(ttl, false) => {
+                            let r = ttl.parse::<u32>().map_err(|err| {
+                                ParserError::ParserError(format!(
+                                    "TTL must be a positive integer, error: {}",
+                                    err
+                                ))
+                            })?;
+
+                            Some(r)
+                        }
+                        x => {
+                            return Err(ParserError::ParserError(format!(
+                                "TTL must be a positive integer, actual: {:?}",
+                                x
+                            )))
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                Ok(Statement::CacheSet {
+                    key: self.parser.parse_identifier()?,
+                    value: self.parser.parse_literal_string()?,
+                    ttl,
+                })
+            }
             "remove" => Ok(Statement::CacheRemove {
                 key: self.parser.parse_identifier()?,
             }),
