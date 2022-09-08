@@ -1123,10 +1123,9 @@ pub trait MetaStore: DIService + Send + Sync {
 
     async fn debug_dump(&self, out_path: String) -> Result<(), CubeError>;
 
+    async fn all_cache(&self) -> Result<Vec<IdRow<CacheItem>>, CubeError>;
     async fn cache_set(&self, key: String, expire: Option<DateTime<Utc>>) -> Result<(), CubeError>;
-
     async fn cache_truncate(&self) -> Result<(), CubeError>;
-
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
 }
 
@@ -3372,6 +3371,13 @@ impl MetaStore for RocksMetaStore {
                 RocksMetaStore::drop_index(db_ref.clone(), batch_pipe, index, true)?;
             }
             Ok(tables_table.delete(table_id, batch_pipe)?)
+        })
+        .await
+    }
+
+    async fn all_cache(&self) -> Result<Vec<IdRow<CacheItem>>, CubeError> {
+        self.read_operation_out_of_queue(move |db_ref| {
+            Ok(CacheItemRocksTable::new(db_ref).all_rows()?)
         })
         .await
     }

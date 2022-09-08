@@ -16,6 +16,14 @@ impl CacheItem {
     pub fn new(key: String, expire: Option<DateTime<Utc>>) -> CacheItem {
         CacheItem { key, expire }
     }
+
+    pub fn get_key(&self) -> &String {
+        &self.key
+    }
+
+    pub fn get_expire(&self) -> &Option<DateTime<Utc>> {
+        &self.expire
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
