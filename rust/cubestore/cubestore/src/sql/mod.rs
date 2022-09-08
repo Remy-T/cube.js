@@ -1047,6 +1047,9 @@ impl SqlService for SqlServiceImpl {
                     .await?;
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
+            CubeStoreStatement::CacheSet { key, value } => {
+                Ok(Arc::new(DataFrame::new(vec![], vec![])))
+            }
             CubeStoreStatement::Statement(Statement::Query(q)) => {
                 let logical_plan = self
                     .query_planner

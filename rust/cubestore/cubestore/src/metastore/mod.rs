@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod chunks;
 pub mod index;
 pub mod job;
@@ -46,6 +47,7 @@ use crate::util::WorkerLoop;
 use crate::CubeError;
 use arrow::datatypes::TimeUnit::Microsecond;
 use arrow::datatypes::{DataType, Field};
+use cache::{CacheItemRocksIndex, CacheItemRocksTable};
 use chrono::{DateTime, Utc};
 use chunks::ChunkRocksTable;
 use core::{fmt, mem};
@@ -677,6 +679,15 @@ pub struct Partition {
 }
 
 data_frame_from! {
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
+pub struct CacheItem {
+    key: String,
+    #[serde(default)]
+    expire: Option<DateTime<Utc>>
+}
+}
+
+data_frame_from! {
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Hash)]
 pub struct Chunk {
     partition_id: u64,
@@ -833,6 +844,7 @@ meta_store_table_impl!(ChunkMetaStoreTable, Chunk, ChunkRocksTable);
 meta_store_table_impl!(IndexMetaStoreTable, Index, IndexRocksTable);
 meta_store_table_impl!(PartitionMetaStoreTable, Partition, PartitionRocksTable);
 meta_store_table_impl!(TableMetaStoreTable, Table, TableRocksTable);
+meta_store_table_impl!(CacheItemMetaStoreTable, CacheItem, CacheItemRocksTable);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PartitionData {
@@ -1144,6 +1156,9 @@ pub enum MetaStoreEvent {
 
     UpdateMultiPartition(IdRow<MultiPartition>, IdRow<MultiPartition>),
     DeleteMultiPartition(IdRow<MultiPartition>),
+
+    UpdateCacheItem(IdRow<CacheItem>, IdRow<CacheItem>),
+    DeleteCacheItem(IdRow<CacheItem>),
 }
 
 type SecondaryKey = Vec<u8>;
@@ -1267,7 +1282,8 @@ enum_from_primitive! {
         Jobs = 0x0700,
         Sources = 0x0800,
         MultiIndexes = 0x0900,
-        MultiPartitions = 0x0A00
+        MultiPartitions = 0x0A00,
+        CacheItems = 0x0B00
     }
 }
 
@@ -1282,6 +1298,7 @@ fn check_indexes_for_all_tables<'a>(table_ref: DbTableRef<'a>) -> Result<(), Cub
     SourceRocksTable::new(table_ref.clone()).check_indexes()?;
     MultiIndexRocksTable::new(table_ref.clone()).check_indexes()?;
     MultiPartitionRocksTable::new(table_ref.clone()).check_indexes()?;
+    CacheItemRocksTable::new(table_ref.clone()).check_indexes()?;
     Ok(())
 }
 
@@ -3352,6 +3369,15 @@ impl MetaStore for RocksMetaStore {
         })
         .await
     }
+
+    // async fn cache_set(&self, table_id: u64) -> Result<IdRow<Table>, CubeError> {
+    //     self.write_operation(move |db_ref, batch_pipe| {
+    //         let table = PartitionRocksTable::new(db_ref.clone());
+    //         let row_id = table.insert(partition, batch_pipe)?;
+    //         Ok(row_id)
+    //     })
+    //         .await
+    // }
 
     fn partition_table(&self) -> PartitionMetaStoreTable {
         PartitionMetaStoreTable {

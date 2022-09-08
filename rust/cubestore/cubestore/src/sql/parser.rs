@@ -54,6 +54,13 @@ pub enum Statement {
         credentials: Vec<SqlOption>,
         or_update: bool,
     },
+    CacheSet {
+        key: Ident,
+        value: String,
+    },
+    CacheRemove {
+        key: Ident,
+    },
     System(SystemCommand),
     Dump(Box<Query>),
 }
@@ -85,6 +92,10 @@ impl<'a> CubeStoreParser<'a> {
                 _ if w.value.eq_ignore_ascii_case("sys") => {
                     self.parser.next_token();
                     self.parse_system()
+                }
+                _ if w.value.eq_ignore_ascii_case("cache") => {
+                    self.parser.next_token();
+                    self.parse_cache()
                 }
                 Keyword::CREATE => {
                     self.parser.next_token();
@@ -120,6 +131,19 @@ impl<'a> CubeStoreParser<'a> {
             self.parse_create_source()
         } else {
             Ok(Statement::Statement(self.parser.parse_create()?))
+        }
+    }
+
+    fn parse_cache(&mut self) -> Result<Statement, ParserError> {
+        if self.parse_custom_token("set") {
+            Ok(Statement::CacheSet {
+                key: self.parser.parse_identifier()?,
+                value: self.parser.parse_literal_string()?,
+            })
+        } else {
+            Err(ParserError::ParserError(
+                "Unknown cache command".to_string(),
+            ))
         }
     }
 
