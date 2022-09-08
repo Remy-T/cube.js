@@ -1556,7 +1556,8 @@ trait RocksTable: Debug + Send + Sync {
     fn check_indexes(&self) -> Result<(), CubeError> {
         let snapshot = self.snapshot();
         for index in Self::indexes().into_iter() {
-            let index_info = snapshot.get(
+            let index_info = snapshot.get_cf(
+                self.cf()?,
                 &RowKey::SecondaryIndexInfo {
                     index_id: self.index_id(index.get_id()),
                 }
@@ -1612,7 +1613,8 @@ trait RocksTable: Debug + Send + Sync {
             let index_row = self.index_key_val(row.get_row(), row.get_id(), index);
             batch.put(index_row.key, index_row.val);
         }
-        batch.put(
+        batch.put_cf(
+            self.cf()?,
             &RowKey::SecondaryIndexInfo {
                 index_id: self.index_id(index.get_id()),
             }
