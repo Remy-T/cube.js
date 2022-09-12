@@ -12,23 +12,6 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     this.connection = new CubeStoreDriver({});
   }
 
-  // protected async getClient() {
-  //   return this.connection.getClient();
-  // }
-
-  public async get(key: string) {
-    // const client = await this.getClient();
-    //
-    // try {
-    //   const res = await client.getAsync(key);
-    //   return res && JSON.parse(res);
-    // } finally {
-    //   this.redisPool.release(client);
-    // }
-
-    throw new Error('Unimplemented get');
-  }
-
   public withLock = (
     key: string,
     cb: () => MaybeCancelablePromise<any>,
@@ -71,40 +54,22 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     throw new Error('Unimplemented withLock');
   });
 
-  // @ts-ignore
-  public async set(key: string, value, expiration) {
-    // const client = await this.getClient();
-    //
-    // try {
-    //   const strValue = JSON.stringify(value);
-    //   await client.setAsync(key, strValue, 'EX', expiration);
-    //   return {
-    //     key,
-    //     bytes: Buffer.byteLength(strValue),
-    //   };
-    // } finally {
-    //   this.redisPool.release(client);
-    // }
+  public async get(key: string) {
+    return this.connection.query(`CACHE GET "${key}"`, []);
+  }
 
-    throw new Error('Unimplemented set');
+  public async set(key: string, value, expiration) {
+    const strValue = JSON.stringify(value);
+    await this.connection.query(`CACHE SET TTL ${expiration} ? ?`, [key, strValue]);
 
     return {
       key,
-      bytes: Buffer.byteLength('todo'),
+      bytes: Buffer.byteLength(strValue),
     };
   }
 
-  // @ts-ignore
   public async remove(key: string) {
-    // const client = await this.getClient();
-    //
-    // try {
-    //   return await client.delAsync(key);
-    // } finally {
-    //   this.redisPool.release(client);
-    // }
-
-    throw new Error('Unimplemented remove');
+    await this.connection.query(`CACHE REMOVE "${key}"`, []);
   }
 
   // @ts-ignore
