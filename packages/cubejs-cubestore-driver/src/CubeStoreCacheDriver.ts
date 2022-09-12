@@ -26,7 +26,7 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     //   this.redisPool.release(client);
     // }
 
-    throw new Error('Unimplemented');
+    throw new Error('Unimplemented get');
   }
 
   public withLock = (
@@ -68,7 +68,7 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     //   this.redisPool.release(client);
     // }
 
-    throw new Error('Unimplemented');
+    throw new Error('Unimplemented withLock');
   });
 
   // @ts-ignore
@@ -86,7 +86,12 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     //   this.redisPool.release(client);
     // }
 
-    throw new Error('Unimplemented');
+    throw new Error('Unimplemented set');
+
+    return {
+      key,
+      bytes: Buffer.byteLength('todo'),
+    };
   }
 
   // @ts-ignore
@@ -99,7 +104,7 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     //   this.redisPool.release(client);
     // }
 
-    throw new Error('Unimplemented');
+    throw new Error('Unimplemented remove');
   }
 
   // @ts-ignore
@@ -112,7 +117,9 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     //   this.redisPool.release(client);
     // }
 
-    throw new Error('Unimplemented');
+    throw new Error('Unimplemented keysStartingWith');
+
+    return [];
   }
 
   public async cleanup(): Promise<void> {
@@ -128,6 +135,6 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     //   this.redisPool.release(client);
     // }
 
-    throw new Error('Unimplemented');
+    throw new Error('Unimplemented testConnection');
   }
 }

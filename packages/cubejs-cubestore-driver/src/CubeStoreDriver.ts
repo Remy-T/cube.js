@@ -15,7 +15,6 @@ import { getEnv } from '@cubejs-backend/shared';
 import { format as formatSql } from 'sqlstring';
 import fetch from 'node-fetch';
 
-import { CubeStoreQuery } from './CubeStoreQuery';
 import { ConnectionConfig } from './types';
 import { WebSocketConnection } from './WebSocketConnection';
 
@@ -358,10 +357,6 @@ export class CubeStoreDriver extends BaseDriver implements DriverInterface {
       files: [`stream://${tableData.streamingSource.name}/${tableData.streamingTable}`],
     };
     return this.createTableWithOptions(table, columns, options, queryTracingObj);
-  }
-
-  public static dialectClass() {
-    return CubeStoreQuery;
   }
 
   public capabilities(): ExternalDriverCompatibilities {
