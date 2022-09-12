@@ -59,6 +59,9 @@ pub enum Statement {
         value: String,
         ttl: Option<u32>,
     },
+    CacheGet {
+        key: Ident,
+    },
     CacheRemove {
         key: Ident,
     },
@@ -177,13 +180,17 @@ impl<'a> CubeStoreParser<'a> {
                     ttl,
                 })
             }
+            "get" => Ok(Statement::CacheGet {
+                key: self.parser.parse_identifier()?,
+            }),
             "remove" => Ok(Statement::CacheRemove {
                 key: self.parser.parse_identifier()?,
             }),
             "truncate" => Ok(Statement::CacheTruncate {}),
-            _ => Err(ParserError::ParserError(
-                "Unknown cache command".to_string(),
-            )),
+            command => Err(ParserError::ParserError(format!(
+                "Unknown cache command: {}",
+                command
+            ))),
         }
     }
 

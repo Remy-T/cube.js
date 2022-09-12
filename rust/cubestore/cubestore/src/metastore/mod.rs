@@ -27,6 +27,7 @@ use tokio::sync::{oneshot, Notify, RwLock};
 
 use crate::config::injection::DIService;
 use crate::config::{Config, ConfigObj};
+use crate::metastore::cache::CacheItemIndexKey;
 use crate::metastore::chunks::{ChunkIndexKey, ChunkRocksIndex};
 use crate::metastore::index::IndexIndexKey;
 use crate::metastore::job::{Job, JobIndexKey, JobRocksIndex, JobRocksTable, JobStatus, JobType};
@@ -1132,6 +1133,7 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn cache_set(&self, item: CacheItem) -> Result<(), CubeError>;
     async fn cache_truncate(&self) -> Result<(), CubeError>;
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
+    async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError>;
 }
 
 crate::di_service!(RocksMetaStore, [MetaStore]);
@@ -3500,12 +3502,18 @@ impl MetaStore for RocksMetaStore {
         Ok(())
     }
 
-    // async fn cache_get(&self, key: String) -> Result<IdRow<Table>, CubeError> {
-    //     self.read_operation(move |db_ref| {
-    //         CacheItemRocksTable::new(db_ref).get_row_or_not_found(partition_id)
-    //     })
-    //         .await
-    // }
+    async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError> {
+        self.read_operation(move |db_ref| {
+            let cache_schema = CacheItemRocksTable::new(db_ref.clone());
+            let index_key = CacheItemIndexKey::ByKey(key);
+            // let row = cache_schema.get_single_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
+
+            // Ok(row)
+
+            Ok(None)
+        })
+        .await
+    }
 
     fn partition_table(&self) -> PartitionMetaStoreTable {
         PartitionMetaStoreTable {

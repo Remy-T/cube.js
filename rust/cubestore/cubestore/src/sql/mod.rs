@@ -1054,10 +1054,18 @@ impl SqlService for SqlServiceImpl {
 
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
-            CubeStoreStatement::CacheRemove { key } => {
+            CubeStoreStatement::CacheGet { key } => {
                 let key = key.value;
 
-                // let table = self.db.cache_set(key.clone(), None).await?;
+                let table = self.db.cache_get(key).await?;
+
+                Ok(Arc::new(DataFrame::new(
+                    vec![Column::new("value".to_string(), ColumnType::String, 0)],
+                    vec![Row::new(vec![TableValue::Null])],
+                )))
+            }
+            CubeStoreStatement::CacheRemove { key } => {
+                let key = key.value;
 
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
