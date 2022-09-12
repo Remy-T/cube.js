@@ -1,3 +1,4 @@
+export * from './CubeStoreCacheDriver';
 export * from './CubeStoreQuery';
 export * from './CubeStoreDriver';
 export * from './CubeStoreDevDriver';

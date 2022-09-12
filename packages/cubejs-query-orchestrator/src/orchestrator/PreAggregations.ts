@@ -18,13 +18,12 @@ import { cancelCombinator, SaveCancelFn, DriverInterface, BaseDriver,
   DownloadTableData,
   InlineTable,
   StreamOptions,
-  UnloadOptions } from '@cubejs-backend/base-driver';
+  UnloadOptions, CacheDriverInterface, } from '@cubejs-backend/base-driver';
 import { RedisCacheDriver } from './RedisCacheDriver';
 import { LocalCacheDriver } from './LocalCacheDriver';
 import { Query, QueryCache, QueryTuple, QueryWithParams } from './QueryCache';
 import { ContinueWaitError } from './ContinueWaitError';
 import { DriverFactory, DriverFactoryByDataSource } from './DriverFactory';
-import { CacheDriverInterface } from './cache-driver.interface';
 import { QueryQueue } from './QueryQueue';
 import { LargeStreamWarning } from './StreamObjectsCounter';
 
