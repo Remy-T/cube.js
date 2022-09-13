@@ -55,7 +55,12 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
   });
 
   public async get(key: string) {
-    return this.connection.query(`CACHE GET "${key}"`, []);
+    const rows = await this.connection.query(`CACHE GET "${key}"`, []);
+    if (rows && rows.length === 1) {
+      return JSON.parse(rows[0].value);
+    }
+
+    return null;
   }
 
   public async set(key: string, value, expiration) {
