@@ -202,6 +202,19 @@ And the data within `aggregatedIndex` would look like:
 | processing | 14    |
 | shipped    | 9     |
 
+## Querying real-time data with rollup unions
+
+By default, Cube is configured to build and refresh pre-aggregations in the
+background and use them for query results. However, this approach can lead to
+stale data being returned when a query is made against a pre-aggregation that
+has not yet been refreshed. To avoid this, a pre-aggregation can be configured
+to act as a **rollup union**, which can query data from the source database and
+join it with existing data from a pre-aggregation. This allows leveraging
+pre-aggregations for scenarios that have real-time data requirements. To enable
+this for a pre-aggregation, set
+[`unionWithSourceData`][ref-schema-ref-preaggs-unionwithsrcdata] to `true` in
+the pre-aggregation definition.
+
 ## Inspecting Pre-Aggregations
 
 Cube Store partially supports the MySQL protocol. This allows you to execute
@@ -500,6 +513,8 @@ currently manage this. For most use-cases, 1 day is sufficient.
   /schema/reference/pre-aggregations#refresh-key-every
 [ref-schema-ref-preaggs-refresh-key-sql]:
   /schema/reference/pre-aggregations#refresh-key-sql
+[ref-schema-ref-preaggs-unionwithsrcdata]:
+  /schema/reference/pre-aggregations#parameters-union-with-source-data
 [ref-deploy-refresh-wrkr]: /deployment/overview#refresh-worker
 [ref-schema-ref-preaggs-sched-refresh]:
   /schema/reference/pre-aggregations#scheduled-refresh

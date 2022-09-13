@@ -843,6 +843,28 @@ cube(`Orders`, {
 });
 ```
 
+### <--{"id" : "Parameters"}--> unionWithSourceData
+
+Pre-aggregations can be configured to behave in real-time fashion by joining an
+existing pre-aggregation with fresh data retrieved from the data source. This
+can be done by setting `unionWithSourceData` to `true`:
+
+```javascript
+cube(`Orders`, {
+  ...,
+
+  preAggregations: {
+    main: {
+      measures: [Orders.count],
+      timeDimension: Orders.createdAt,
+      granularity: `day`,
+      partitionGranularity: `month`,
+      unionWithSourceData: true,
+    }
+  },
+});
+```
+
 ### <--{"id" : "Parameters"}--> indexes
 
 In case of pre-aggregation tables having significant cardinality, you might want
@@ -911,15 +933,18 @@ columns and pre-aggregated measures in the pre-aggregation definition.
 [Queries][ref-api-ref-query-ref] that can target aggregating indexes must have
 the following characteristics:
 
-1. They cannot make use of any `filters` other than for those dimensions that included in that index
+1. They cannot make use of any `filters` other than for those dimensions that
+   included in that index
 2. **All** dimensions used in the query must be defined in the aggregating index
 
 Queries that do not have the above can still make use of regular indexes so
 performance can still be optimized.
 
 Basically, the aggregating index is a rollup of data in a rollup table itself.
-Data needs to be downloaded from the source DB as many times as many rollups you have.
-Given that having a single rollup and multiple aggregate indexes gives you pretty same performance from the Cube Store side but multiple times less cost from a data warehouse perspective.
+Data needs to be downloaded from the source DB as many times as many rollups you
+have. Given that having a single rollup and multiple aggregate indexes gives you
+pretty same performance from the Cube Store side but multiple times less cost
+from a data warehouse perspective.
 
 Aggregating indexes can be defined by adding a `type: 'aggregate'` to the index
 definition:
