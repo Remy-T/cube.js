@@ -28,14 +28,6 @@ impl InfoSchemaTableDef for InfoSchemaCacheDef {
                 }),
             ),
             (
-                Field::new("value", DataType::Utf8, false),
-                Box::new(|items| {
-                    Arc::new(StringArray::from(
-                        items.iter().map(|row| None).collect::<Vec<_>>(),
-                    ))
-                }),
-            ),
-            (
                 Field::new(
                     "expire",
                     DataType::Timestamp(TimeUnit::Nanosecond, None),
@@ -52,6 +44,14 @@ impl InfoSchemaTableDef for InfoSchemaCacheDef {
                                     .map(|t| t.timestamp_nanos())
                             })
                             .collect::<Vec<_>>(),
+                    ))
+                }),
+            ),
+            (
+                Field::new("value", DataType::Utf8, false),
+                Box::new(|items| {
+                    Arc::new(StringArray::from_iter(
+                        items.iter().map(|row| Some(row.get_row().get_value())),
                     ))
                 }),
             ),

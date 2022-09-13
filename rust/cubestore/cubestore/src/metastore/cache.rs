@@ -15,9 +15,10 @@ use std::ops::Add;
 use std::time::SystemTime;
 
 impl CacheItem {
-    pub fn new(key: String, ttl: Option<u32>) -> CacheItem {
+    pub fn new(key: String, ttl: Option<u32>, value: String) -> CacheItem {
         CacheItem {
             key,
+            value,
             expire: ttl.map(|ttl| Utc::now().add(Duration::seconds(ttl as i64))),
         }
     }
@@ -28,6 +29,10 @@ impl CacheItem {
 
     pub fn get_expire(&self) -> &Option<DateTime<Utc>> {
         &self.expire
+    }
+
+    pub fn get_value(&self) -> &String {
+        &self.value
     }
 }
 

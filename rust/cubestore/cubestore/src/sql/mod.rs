@@ -1054,19 +1054,28 @@ impl SqlService for SqlServiceImpl {
             CubeStoreStatement::CacheSet { key, value, ttl } => {
                 let key = key.value;
 
-                let table = self.db.cache_set(CacheItem::new(key, ttl)).await?;
+                let table = self
+                    .db
+                    .cache_set(CacheItem::new(key, ttl, value), true)
+                    .await?;
 
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
             CubeStoreStatement::CacheGet { key } => {
-                let key = key.value;
-
-                let table = self.db.cache_get(key).await?;
-
-                Ok(Arc::new(DataFrame::new(
-                    vec![Column::new("value".to_string(), ColumnType::String, 0)],
-                    vec![Row::new(vec![TableValue::Null])],
-                )))
+                let row = self.db.cache_get(key.value).await?;
+                if let Some(r) = row {
+                    Ok(Arc::new(DataFrame::new(
+                        vec![Column::new("value".to_string(), ColumnType::String, 0)],
+                        vec![Row::new(vec![TableValue::String(
+                            r.get_row().get_value().clone(),
+                        )])],
+                    )))
+                } else {
+                    Ok(Arc::new(DataFrame::new(
+                        vec![Column::new("value".to_string(), ColumnType::String, 0)],
+                        vec![Row::new(vec![TableValue::Null])],
+                    )))
+                }
             }
             CubeStoreStatement::CacheRemove { key } => {
                 let key = key.value;

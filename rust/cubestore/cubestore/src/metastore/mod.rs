@@ -689,6 +689,8 @@ data_frame_from! {
 pub struct CacheItem {
     key: String,
     #[serde(default)]
+    value: String,
+    #[serde(default)]
     expire: Option<DateTime<Utc>>
 }
 }
@@ -1130,7 +1132,7 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn debug_dump(&self, out_path: String) -> Result<(), CubeError>;
 
     async fn all_cache(&self) -> Result<Vec<IdRow<CacheItem>>, CubeError>;
-    async fn cache_set(&self, item: CacheItem) -> Result<(), CubeError>;
+    async fn cache_set(&self, item: CacheItem, upsert: bool) -> Result<(), CubeError>;
     async fn cache_truncate(&self) -> Result<(), CubeError>;
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
     async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError>;
@@ -1710,6 +1712,18 @@ trait RocksTable: Debug + Send + Sync {
             "One value expected in {:?} for {:?} but nothing found",
             self, row_key
         )))?)
+    }
+
+    fn get_single_opt_row_by_index<K: Debug>(
+        &self,
+        row_key: &K,
+        secondary_index: &impl RocksSecondaryIndex<Self::T, K>,
+    ) -> Result<Option<IdRow<Self::T>>, CubeError>
+    where
+        K: Hash,
+    {
+        let rows = self.get_rows_by_index(row_key, secondary_index)?;
+        Ok(rows.into_iter().nth(0))
     }
 
     fn update_with_fn(
@@ -3472,11 +3486,30 @@ impl MetaStore for RocksMetaStore {
         .await
     }
 
-    async fn cache_set(&self, item: CacheItem) -> Result<(), CubeError> {
+    async fn cache_set(&self, item: CacheItem, upsert: bool) -> Result<(), CubeError> {
         self.write_operation(move |db_ref, batch_pipe| {
-            let table = CacheItemRocksTable::new(db_ref.clone());
-            let row_id = table.insert(item, batch_pipe)?;
-            Ok(row_id)
+            let cache_schema = CacheItemRocksTable::new(db_ref.clone());
+            let index_key = CacheItemIndexKey::ByKey(item.key.clone());
+            let row =
+                cache_schema.get_single_opt_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
+
+            if upsert && row.is_some() {
+                cache_schema.update_with_fn(
+                    row.unwrap().id,
+                    move |row| {
+                        let mut new = row.clone();
+                        new.value = item.value;
+                        new.expire = item.expire;
+
+                        new
+                    },
+                    batch_pipe,
+                )?;
+            } else {
+                cache_schema.insert(item, batch_pipe)?;
+            }
+
+            Ok(())
         })
         .await?;
 
@@ -3528,11 +3561,10 @@ impl MetaStore for RocksMetaStore {
         self.read_operation(move |db_ref| {
             let cache_schema = CacheItemRocksTable::new(db_ref.clone());
             let index_key = CacheItemIndexKey::ByKey(key);
-            // let row = cache_schema.get_single_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
+            let row =
+                cache_schema.get_single_opt_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
 
-            // Ok(row)
-
-            Ok(None)
+            Ok(row)
         })
         .await
     }
