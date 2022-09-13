@@ -752,6 +752,10 @@ impl SqlService for SqlServiceImpl {
                 }
             }
             CubeStoreStatement::System(command) => match command {
+                SystemCommand::Compaction { cf } => {
+                    self.db.compaction(cf).await?;
+                    Ok(Arc::new(DataFrame::new(vec![], vec![])))
+                }
                 SystemCommand::KillAllJobs => {
                     self.db.delete_all_jobs().await?;
                     Ok(Arc::new(DataFrame::new(vec![], vec![])))

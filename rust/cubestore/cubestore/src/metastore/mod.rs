@@ -1134,6 +1134,8 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn cache_truncate(&self) -> Result<(), CubeError>;
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
     async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError>;
+
+    async fn compaction(&self, cf: ColumnFamilyName) -> Result<(), CubeError>;
 }
 
 crate::di_service!(RocksMetaStore, [MetaStore]);
@@ -2146,7 +2148,8 @@ fn meta_store_cache_cf_compaction(level: u32, key: &[u8], value: &[u8]) -> Compa
     CompactionDecision::Keep
 }
 
-enum ColumnFamilyName {
+#[derive(Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub enum ColumnFamilyName {
     Default,
     Cache,
 }
@@ -3498,6 +3501,25 @@ impl MetaStore for RocksMetaStore {
     async fn cache_delete(&self, key: String) -> Result<(), CubeError> {
         self.write_operation(move |db_ref, batch_pipe| Ok(()))
             .await?;
+
+        Ok(())
+    }
+
+    async fn compaction(&self, cf_name: ColumnFamilyName) -> Result<(), CubeError> {
+        self.write_operation(move |db_ref, batch_pipe| {
+            let cf = db_ref
+                .db
+                .cf_handle(cf_name.into())
+                .ok_or_else(|| CubeError::internal(format!("cf {} not found", cf_name)))?;
+
+            let start: Option<&[u8]> = None;
+            let end: Option<&[u8]> = None;
+
+            db_ref.db.compact_range_cf(cf, start, end);
+
+            Ok(())
+        })
+        .await?;
 
         Ok(())
     }

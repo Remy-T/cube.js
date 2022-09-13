@@ -1,3 +1,4 @@
+use crate::metastore::ColumnFamilyName;
 use sqlparser::ast::{
     HiveDistributionStyle, Ident, ObjectName, Query, SqlOption, Statement as SQLStatement, Value,
 };
@@ -70,8 +71,9 @@ pub enum Statement {
     Dump(Box<Query>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SystemCommand {
+    Compaction { cf: ColumnFamilyName },
     KillAllJobs,
     Repartition { partition_id: u64 },
     PanicWorker,
@@ -200,6 +202,19 @@ impl<'a> CubeStoreParser<'a> {
             && self.parse_custom_token("jobs")
         {
             Ok(Statement::System(SystemCommand::KillAllJobs))
+        } else if self.parse_custom_token("compaction") {
+            let cf = match self.parser.parse_literal_string()?.to_lowercase().as_str() {
+                "default" => ColumnFamilyName::Default,
+                "cache" => ColumnFamilyName::Cache,
+                other => {
+                    return Err(ParserError::ParserError(format!(
+                        "Unknown column family for compaction: {}",
+                        other
+                    )))
+                }
+            };
+
+            Ok(Statement::System(SystemCommand::Compaction { cf }))
         } else if self.parse_custom_token("repartition") {
             match self.parser.parse_number_value()? {
                 Value::Number(id, _) => Ok(Statement::System(SystemCommand::Repartition {
