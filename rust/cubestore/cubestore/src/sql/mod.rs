@@ -1086,7 +1086,7 @@ impl SqlService for SqlServiceImpl {
                 }
             }
             CubeStoreStatement::CacheRemove { key } => {
-                let key = key.value;
+                self.db.cache_delete(key.value).await?;
 
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }

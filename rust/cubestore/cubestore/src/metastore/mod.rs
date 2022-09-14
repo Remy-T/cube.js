@@ -3544,8 +3544,19 @@ impl MetaStore for RocksMetaStore {
     }
 
     async fn cache_delete(&self, key: String) -> Result<(), CubeError> {
-        self.write_operation(move |db_ref, batch_pipe| Ok(()))
-            .await?;
+        self.write_operation(move |db_ref, batch_pipe| {
+            let cache_schema = CacheItemRocksTable::new(db_ref.clone());
+            let index_key = CacheItemIndexKey::ByKey(key);
+            let row_opt =
+                cache_schema.get_single_opt_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
+
+            if let Some(row) = row_opt {
+                cache_schema.delete(row.id, batch_pipe)?;
+            }
+
+            Ok(())
+        })
+        .await?;
 
         Ok(())
     }
