@@ -72,7 +72,7 @@ use schema::{SchemaRocksIndex, SchemaRocksTable};
 use smallvec::alloc::fmt::Formatter;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Display, Write};
+use std::fmt::{Debug, Display};
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -3500,16 +3500,16 @@ impl MetaStore for RocksMetaStore {
         self.write_operation(move |db_ref, batch_pipe| {
             let cache_schema = CacheItemRocksTable::new(db_ref.clone());
             let index_key = CacheItemIndexKey::ByKey(item.key.clone());
-            let row_opt =
+            let id_row_opt =
                 cache_schema.get_single_opt_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
 
-            if let Some(row) = row_opt {
-                if nx {
+            if let Some(id_row) = id_row_opt {
+                if nx && !id_row.row.is_expired() {
                     return Ok(false);
                 };
 
                 cache_schema.update_with_fn(
-                    row.id,
+                    id_row.id,
                     move |row| {
                         let mut new = row.clone();
                         new.value = item.value;
@@ -3562,7 +3562,7 @@ impl MetaStore for RocksMetaStore {
     }
 
     async fn cf_compaction(&self, cf_name: ColumnFamilyName) -> Result<(), CubeError> {
-        self.write_operation(move |db_ref, batch_pipe| {
+        self.write_operation(move |db_ref, _batch_pipe| {
             let cf = db_ref
                 .db
                 .cf_handle(cf_name.into())
@@ -3598,10 +3598,16 @@ impl MetaStore for RocksMetaStore {
         self.read_operation(move |db_ref| {
             let cache_schema = CacheItemRocksTable::new(db_ref.clone());
             let index_key = CacheItemIndexKey::ByKey(key);
-            let row =
+            let id_row_opt =
                 cache_schema.get_single_opt_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
 
-            Ok(row)
+            if let Some(id_row) = id_row_opt {
+                if !id_row.row.is_expired() {
+                    return Ok(Some(id_row));
+                }
+            };
+
+            Ok(None)
         })
         .await
     }

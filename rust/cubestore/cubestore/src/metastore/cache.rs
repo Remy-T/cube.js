@@ -23,6 +23,18 @@ impl CacheItem {
         }
     }
 
+    pub fn is_expired(&self) -> bool {
+        if let Some(expire) = self.get_expire() {
+            if expire < &Utc::now() {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn get_key(&self) -> &String {
         &self.key
     }

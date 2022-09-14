@@ -34,7 +34,6 @@ use crate::queryplanner::serialized_plan::SerializedPlan;
 use crate::queryplanner::topk::ClusterAggregateTopK;
 use crate::queryplanner::udfs::aggregate_udf_by_kind;
 use crate::queryplanner::udfs::{scalar_udf_by_kind, CubeAggregateUDFKind, CubeScalarUDFKind};
-use crate::queryplanner::InfoSchemaTable::SystemRocksdbStats;
 use crate::sql::InlineTables;
 use crate::store::DataFrame;
 use crate::{app_metrics, metastore, CubeError};
