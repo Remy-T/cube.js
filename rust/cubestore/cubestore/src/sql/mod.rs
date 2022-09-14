@@ -753,7 +753,7 @@ impl SqlService for SqlServiceImpl {
             }
             CubeStoreStatement::System(command) => match command {
                 SystemCommand::Compaction { cf } => {
-                    self.db.compaction(cf).await?;
+                    self.db.cf_compaction(cf).await?;
                     Ok(Arc::new(DataFrame::new(vec![], vec![])))
                 }
                 SystemCommand::KillAllJobs => {

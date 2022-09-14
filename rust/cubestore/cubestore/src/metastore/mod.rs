@@ -1138,7 +1138,9 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
     async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError>;
 
-    async fn compaction(&self, cf: ColumnFamilyName) -> Result<(), CubeError>;
+    // Force compaction for specific column family
+    async fn cf_compaction(&self, cf: ColumnFamilyName) -> Result<(), CubeError>;
+    // Get RocksDB dbstats for specific column family
     async fn cf_statistics(&self, cf_name: ColumnFamilyName) -> Result<Option<String>, CubeError>;
 }
 
@@ -3546,7 +3548,7 @@ impl MetaStore for RocksMetaStore {
         Ok(())
     }
 
-    async fn compaction(&self, cf_name: ColumnFamilyName) -> Result<(), CubeError> {
+    async fn cf_compaction(&self, cf_name: ColumnFamilyName) -> Result<(), CubeError> {
         self.write_operation(move |db_ref, batch_pipe| {
             let cf = db_ref
                 .db
