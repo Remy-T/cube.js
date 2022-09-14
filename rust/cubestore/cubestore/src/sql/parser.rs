@@ -59,6 +59,7 @@ pub enum Statement {
         key: Ident,
         value: String,
         ttl: Option<u32>,
+        nx: bool,
     },
     CacheGet {
         key: Ident,
@@ -153,6 +154,7 @@ impl<'a> CubeStoreParser<'a> {
 
         match command.as_str() {
             "set" => {
+                let nx = self.parse_custom_token(&"nx");
                 let ttl = if self.parse_custom_token(&"ttl") {
                     match self.parser.parse_number_value()? {
                         Value::Number(ttl, false) => {
@@ -180,6 +182,7 @@ impl<'a> CubeStoreParser<'a> {
                     key: self.parser.parse_identifier()?,
                     value: self.parser.parse_literal_string()?,
                     ttl,
+                    nx,
                 })
             }
             "get" => Ok(Statement::CacheGet {

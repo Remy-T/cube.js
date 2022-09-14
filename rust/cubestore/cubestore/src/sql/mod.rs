@@ -1051,15 +1051,23 @@ impl SqlService for SqlServiceImpl {
                     .await?;
                 Ok(Arc::new(DataFrame::new(vec![], vec![])))
             }
-            CubeStoreStatement::CacheSet { key, value, ttl } => {
+            CubeStoreStatement::CacheSet {
+                key,
+                value,
+                ttl,
+                nx,
+            } => {
                 let key = key.value;
 
-                let table = self
+                let success = self
                     .db
-                    .cache_set(CacheItem::new(key, ttl, value), true)
+                    .cache_set(CacheItem::new(key, ttl, value), nx)
                     .await?;
 
-                Ok(Arc::new(DataFrame::new(vec![], vec![])))
+                Ok(Arc::new(DataFrame::new(
+                    vec![Column::new("success".to_string(), ColumnType::Boolean, 0)],
+                    vec![Row::new(vec![TableValue::Boolean(success)])],
+                )))
             }
             CubeStoreStatement::CacheGet { key } => {
                 let row = self.db.cache_get(key.value).await?;

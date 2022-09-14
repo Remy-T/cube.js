@@ -1133,7 +1133,7 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn debug_dump(&self, out_path: String) -> Result<(), CubeError>;
 
     async fn all_cache(&self) -> Result<Vec<IdRow<CacheItem>>, CubeError>;
-    async fn cache_set(&self, item: CacheItem, upsert: bool) -> Result<(), CubeError>;
+    async fn cache_set(&self, item: CacheItem, nx: bool) -> Result<bool, CubeError>;
     async fn cache_truncate(&self) -> Result<(), CubeError>;
     async fn cache_delete(&self, key: String) -> Result<(), CubeError>;
     async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError>;
@@ -3496,16 +3496,20 @@ impl MetaStore for RocksMetaStore {
         .await
     }
 
-    async fn cache_set(&self, item: CacheItem, upsert: bool) -> Result<(), CubeError> {
+    async fn cache_set(&self, item: CacheItem, nx: bool) -> Result<bool, CubeError> {
         self.write_operation(move |db_ref, batch_pipe| {
             let cache_schema = CacheItemRocksTable::new(db_ref.clone());
             let index_key = CacheItemIndexKey::ByKey(item.key.clone());
-            let row =
+            let row_opt =
                 cache_schema.get_single_opt_row_by_index(&index_key, &CacheItemRocksIndex::Key)?;
 
-            if upsert && row.is_some() {
+            if let Some(row) = row_opt {
+                if nx {
+                    return Ok(false);
+                };
+
                 cache_schema.update_with_fn(
-                    row.unwrap().id,
+                    row.id,
                     move |row| {
                         let mut new = row.clone();
                         new.value = item.value;
@@ -3519,11 +3523,9 @@ impl MetaStore for RocksMetaStore {
                 cache_schema.insert(item, batch_pipe)?;
             }
 
-            Ok(())
+            Ok(true)
         })
-        .await?;
-
-        Ok(())
+        .await
     }
 
     async fn cache_truncate(&self) -> Result<(), CubeError> {
