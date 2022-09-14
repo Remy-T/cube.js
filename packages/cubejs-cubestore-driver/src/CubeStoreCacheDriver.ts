@@ -18,40 +18,24 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
     expiration: number = 60,
     freeAfter: boolean = true,
   ) => createCancelablePromise(async (tkn) => {
-    // const client = await this.getClient();
-    //
-    // try {
-    //   if (tkn.isCanceled()) {
-    //     return false;
-    //   }
-    //
-    //   const response = await client.setAsync(
-    //     key,
-    //     '1',
-    //     // Only set the key if it does not already exist.
-    //     'NX',
-    //     'EX',
-    //     expiration
-    //   );
-    //
-    //   if (response === 'OK') {
-    //     try {
-    //       await tkn.with(cb());
-    //     } finally {
-    //       if (freeAfter) {
-    //         await client.delAsync(key);
-    //       }
-    //     }
-    //
-    //     return true;
-    //   }
-    //
-    //   return false;
-    // } finally {
-    //   this.redisPool.release(client);
-    // }
+    if (tkn.isCanceled()) {
+      return false;
+    }
 
-    throw new Error('Unimplemented withLock');
+    const rows = await this.connection.query(`CACHE SET NX TTL ${expiration} ? ?`, [key, '1']);
+    if (rows && rows.length === 1 && rows[0].success) {
+      try {
+        await tkn.with(cb());
+      } finally {
+        if (freeAfter) {
+          await this.connection.query(`CACHE REMOVE "${key}"`, []);
+        }
+      }
+
+      return true;
+    }
+
+    return false;
   });
 
   public async get(key: string) {
@@ -97,14 +81,6 @@ export class CubeStoreCacheDriver implements CacheDriverInterface {
   }
 
   public async testConnection(): Promise<void> {
-    // const client = await this.getClient();
-    //
-    // try {
-    //   await client.ping();
-    // } finally {
-    //   this.redisPool.release(client);
-    // }
-
-    throw new Error('Unimplemented testConnection');
+    return this.connection.testConnection();
   }
 }
