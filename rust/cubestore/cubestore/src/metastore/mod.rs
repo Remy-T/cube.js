@@ -82,6 +82,7 @@ use table::Table;
 use table::{TableRocksIndex, TableRocksTable};
 use tokio::fs::File;
 use tokio::sync::broadcast::Sender;
+use tracing_futures::WithSubscriber;
 use wal::WALRocksTable;
 
 #[macro_export]
@@ -1138,6 +1139,7 @@ pub trait MetaStore: DIService + Send + Sync {
     async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError>;
 
     async fn compaction(&self, cf: ColumnFamilyName) -> Result<(), CubeError>;
+    async fn cf_statistics(&self, cf_name: ColumnFamilyName) -> Result<Option<String>, CubeError>;
 }
 
 crate::di_service!(RocksMetaStore, [MetaStore]);
@@ -1785,10 +1787,12 @@ trait RocksTable: Debug + Send + Sync {
         batch_pipe.add_event(MetaStoreEvent::Delete(self.table_id(), row_id));
         batch_pipe.add_event(self.delete_event(row.clone()));
         for row in deleted_row {
-            batch_pipe.batch().delete(row.key);
+            batch_pipe.batch().delete_cf(self.cf()?, row.key);
         }
 
-        batch_pipe.batch().delete(self.delete_row(row_id)?.key);
+        batch_pipe
+            .batch()
+            .delete_cf(self.cf()?, self.delete_row(row_id)?.key);
 
         Ok(row)
     }
@@ -2157,7 +2161,10 @@ fn meta_store_default_cf_merge(
 }
 
 fn meta_store_cache_cf_compaction(level: u32, key: &[u8], value: &[u8]) -> CompactionDecision {
-    println!("level {} key {:?} value {:?}", level, key, value);
+    println!(
+        "meta_store_cache_cf_compaction level {} key {:?} value {:?}",
+        level, key, value
+    );
 
     CompactionDecision::Keep
 }
@@ -2224,6 +2231,7 @@ impl RocksMetaStore {
             opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(13));
             opts.set_merge_operator_associative("meta_store merge", meta_store_default_cf_merge);
             opts.set_compaction_filter("expire-check", meta_store_cache_cf_compaction);
+            opts.enable_statistics();
 
             ColumnFamilyDescriptor::new(ColumnFamilyName::Cache, opts)
         };
@@ -3555,6 +3563,20 @@ impl MetaStore for RocksMetaStore {
         .await?;
 
         Ok(())
+    }
+
+    async fn cf_statistics(&self, cf_name: ColumnFamilyName) -> Result<Option<String>, CubeError> {
+        self.read_operation(move |db_ref| {
+            let cf = db_ref
+                .db
+                .cf_handle(cf_name.into())
+                .ok_or_else(|| CubeError::internal(format!("cf {} not found", cf_name)))?;
+
+            let res = db_ref.db.property_value_cf(cf, "rocksdb.stats")?;
+
+            Ok(res)
+        })
+        .await
     }
 
     async fn cache_get(&self, key: String) -> Result<Option<IdRow<CacheItem>>, CubeError> {

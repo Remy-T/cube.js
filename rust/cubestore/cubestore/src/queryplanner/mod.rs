@@ -22,7 +22,8 @@ use crate::metastore::table::{Table, TablePath};
 use crate::metastore::{IdRow, MetaStore};
 use crate::queryplanner::info_schema::{
     InfoSchemaCacheDef, SchemataInfoSchemaTableDef, SystemChunksTableDef, SystemIndexesTableDef,
-    SystemJobsTableDef, SystemPartitionsTableDef, SystemTablesTableDef, TablesInfoSchemaTableDef,
+    SystemJobsTableDef, SystemPartitionsTableDef, SystemRocksdbStatsDef, SystemTablesTableDef,
+    TablesInfoSchemaTableDef,
 };
 use crate::queryplanner::now::MaterializeNow;
 use crate::queryplanner::planning::{choose_index_ext, ClusterSendNode};
@@ -33,6 +34,7 @@ use crate::queryplanner::serialized_plan::SerializedPlan;
 use crate::queryplanner::topk::ClusterAggregateTopK;
 use crate::queryplanner::udfs::aggregate_udf_by_kind;
 use crate::queryplanner::udfs::{scalar_udf_by_kind, CubeAggregateUDFKind, CubeScalarUDFKind};
+use crate::queryplanner::InfoSchemaTable::SystemRocksdbStats;
 use crate::sql::InlineTables;
 use crate::store::DataFrame;
 use crate::{app_metrics, metastore, CubeError};
@@ -304,6 +306,10 @@ impl ContextProvider for MetaStoreSchemaProvider {
                 self.meta_store.clone(),
                 InfoSchemaTable::SystemJobs,
             ))),
+            ("system", "rocksdb_stats") => Some(Arc::new(InfoSchemaTableProvider::new(
+                self.meta_store.clone(),
+                InfoSchemaTable::SystemRocksdbStats,
+            ))),
             ("system", "cache") => Some(Arc::new(InfoSchemaTableProvider::new(
                 self.meta_store.clone(),
                 InfoSchemaTable::SystemCache,
@@ -342,6 +348,7 @@ pub enum InfoSchemaTable {
     Schemata,
     SystemJobs,
     SystemCache,
+    SystemRocksdbStats,
     SystemTables,
     SystemIndexes,
     SystemPartitions,
@@ -401,6 +408,7 @@ impl InfoSchemaTable {
             InfoSchemaTable::Tables => Box::new(TablesInfoSchemaTableDef),
             InfoSchemaTable::Schemata => Box::new(SchemataInfoSchemaTableDef),
             InfoSchemaTable::SystemCache => Box::new(InfoSchemaCacheDef),
+            InfoSchemaTable::SystemRocksdbStats => Box::new(SystemRocksdbStatsDef),
             InfoSchemaTable::SystemTables => Box::new(SystemTablesTableDef),
             InfoSchemaTable::SystemIndexes => Box::new(SystemIndexesTableDef),
             InfoSchemaTable::SystemChunks => Box::new(SystemChunksTableDef),
