@@ -1337,6 +1337,9 @@ impl MemorySequence {
     }
 }
 
+type RwLoopTx =
+    std::sync::mpsc::SyncSender<Box<dyn FnOnce() -> Result<(), CubeError> + Send + Sync + 'static>>;
+
 #[derive(Clone)]
 pub struct RocksMetaStore {
     pub db: Arc<DB>,
@@ -1351,10 +1354,10 @@ pub struct RocksMetaStore {
     upload_loop: Arc<WorkerLoop>,
     config: Arc<dyn ConfigObj>,
     cached_tables: Arc<Mutex<Option<Arc<Vec<TablePath>>>>>,
-    rw_loop_tx: std::sync::mpsc::SyncSender<
-        Box<dyn FnOnce() -> Result<(), CubeError> + Send + Sync + 'static>,
-    >,
-    _rw_loop_join_handle: Arc<AbortingJoinHandle<()>>,
+    default_rw_loop_tx: RwLoopTx,
+    cache_rw_loop_tx: RwLoopTx,
+    _default_rw_loop_join_handle: Arc<AbortingJoinHandle<()>>,
+    _cache_rw_loop_join_handle: Arc<AbortingJoinHandle<()>>,
 }
 
 trait BaseRocksSecondaryIndex<T>: Debug {
@@ -2247,15 +2250,32 @@ impl RocksMetaStore {
         let db = DB::open_cf_descriptors(&opts, path, vec![default_cf, cache_cf]).unwrap();
         let db_arc = Arc::new(db);
 
-        let (rw_loop_tx, rw_loop_rx) = std::sync::mpsc::sync_channel::<
+        let (default_rw_loop_tx, default_rw_loop_rx) = std::sync::mpsc::sync_channel::<
             Box<dyn FnOnce() -> Result<(), CubeError> + Send + Sync + 'static>,
         >(32_768);
 
-        let join_handle = cube_ext::spawn_blocking(move || loop {
-            match rw_loop_rx.recv() {
+        let (cache_rw_loop_tx, cache_rw_loop_rx) = std::sync::mpsc::sync_channel::<
+            Box<dyn FnOnce() -> Result<(), CubeError> + Send + Sync + 'static>,
+        >(32_768);
+
+        let join_handle_default = cube_ext::spawn_blocking(move || loop {
+            match default_rw_loop_rx.recv() {
                 Ok(fun) => {
                     if let Err(e) = fun() {
-                        log::error!("Error during read write loop execution: {}", e);
+                        log::error!("Error during read write default loop execution: {}", e);
+                    }
+                }
+                Err(_) => {
+                    return;
+                }
+            }
+        });
+
+        let join_handle_cache = cube_ext::spawn_blocking(move || loop {
+            match cache_rw_loop_rx.recv() {
+                Ok(fun) => {
+                    if let Err(e) = fun() {
+                        log::error!("Error during read write cache loop execution: {}", e);
                     }
                 }
                 Err(_) => {
@@ -2277,8 +2297,10 @@ impl RocksMetaStore {
             upload_loop: Arc::new(WorkerLoop::new("Meta Store Upload")),
             config,
             cached_tables: Arc::new(Mutex::new(None)),
-            rw_loop_tx,
-            _rw_loop_join_handle: Arc::new(AbortingJoinHandle::new(join_handle)),
+            default_rw_loop_tx,
+            cache_rw_loop_tx,
+            _default_rw_loop_join_handle: Arc::new(AbortingJoinHandle::new(join_handle_default)),
+            _cache_rw_loop_join_handle: Arc::new(AbortingJoinHandle::new(join_handle_cache)),
         };
         meta_store
     }
@@ -2352,16 +2374,39 @@ impl RocksMetaStore {
             + 'static,
         R: Send + Sync + 'static,
     {
+        self.write_operation_impl(self.default_rw_loop_tx.clone(), f)
+            .await
+    }
+
+    async fn write_operation_cache<F, R>(&self, f: F) -> Result<R, CubeError>
+    where
+        F: for<'a> FnOnce(DbTableRef<'a>, &'a mut BatchPipe) -> Result<R, CubeError>
+            + Send
+            + Sync
+            + 'static,
+        R: Send + Sync + 'static,
+    {
+        self.write_operation_impl(self.cache_rw_loop_tx.clone(), f)
+            .await
+    }
+
+    async fn write_operation_impl<F, R>(&self, rw_loop_tx: RwLoopTx, f: F) -> Result<R, CubeError>
+    where
+        F: for<'a> FnOnce(DbTableRef<'a>, &'a mut BatchPipe) -> Result<R, CubeError>
+            + Send
+            + Sync
+            + 'static,
+        R: Send + Sync + 'static,
+    {
         let db = self.db.clone();
         let mem_seq = MemorySequence {
             seq_store: self.seq_store.clone(),
         };
         let db_to_send = db.clone();
         let cached_tables = self.cached_tables.clone();
-        let rw_loop_sender = self.rw_loop_tx.clone();
         let (tx, rx) = oneshot::channel::<Result<(R, Vec<MetaStoreEvent>), CubeError>>();
         cube_ext::spawn_blocking(move || {
-            let res = rw_loop_sender.send(Box::new(move || {
+            let res = rw_loop_tx.send(Box::new(move || {
                 let db_span = warn_long("metastore write operation", Duration::from_millis(100));
 
                 let mut batch = BatchPipe::new(db_to_send.as_ref());
@@ -2546,7 +2591,7 @@ impl RocksMetaStore {
         )
     }
 
-    async fn read_operation<F, R>(&self, f: F) -> Result<R, CubeError>
+    async fn read_operation_impl<F, R>(&self, rw_loop_tx: RwLoopTx, f: F) -> Result<R, CubeError>
     where
         F: for<'a> FnOnce(DbTableRef<'a>) -> Result<R, CubeError> + Send + Sync + 'static,
         R: Send + Sync + 'static,
@@ -2556,10 +2601,9 @@ impl RocksMetaStore {
         };
         let db_to_send = self.db.clone();
 
-        let rw_loop_sender = self.rw_loop_tx.clone();
         let (tx, rx) = oneshot::channel::<Result<R, CubeError>>();
         cube_ext::spawn_blocking(move || {
-            let res = rw_loop_sender.send(Box::new(move || {
+            let res = rw_loop_tx.send(Box::new(move || {
                 let db_span = warn_long("metastore read operation", Duration::from_millis(100));
 
                 let snapshot = db_to_send.snapshot();
@@ -2586,6 +2630,26 @@ impl RocksMetaStore {
         .await?;
 
         rx.await?
+    }
+
+    // Put read operation for default cf queue
+    async fn read_operation<F, R>(&self, f: F) -> Result<R, CubeError>
+    where
+        F: for<'a> FnOnce(DbTableRef<'a>) -> Result<R, CubeError> + Send + Sync + 'static,
+        R: Send + Sync + 'static,
+    {
+        self.read_operation_impl(self.default_rw_loop_tx.clone(), f)
+            .await
+    }
+
+    // Put read operation for cache cf queue
+    async fn read_operation_cache<F, R>(&self, f: F) -> Result<R, CubeError>
+    where
+        F: for<'a> FnOnce(DbTableRef<'a>) -> Result<R, CubeError> + Send + Sync + 'static,
+        R: Send + Sync + 'static,
+    {
+        self.read_operation_impl(self.cache_rw_loop_tx.clone(), f)
+            .await
     }
 
     async fn read_operation_out_of_queue<F, R>(&self, f: F) -> Result<R, CubeError>
@@ -3497,7 +3561,7 @@ impl MetaStore for RocksMetaStore {
     }
 
     async fn cache_set(&self, item: CacheItem, nx: bool) -> Result<bool, CubeError> {
-        self.write_operation(move |db_ref, batch_pipe| {
+        self.write_operation_cache(move |db_ref, batch_pipe| {
             let cache_schema = CacheItemRocksTable::new(db_ref.clone());
             let index_key = CacheItemIndexKey::ByKey(item.key.clone());
             let id_row_opt =
@@ -3529,7 +3593,7 @@ impl MetaStore for RocksMetaStore {
     }
 
     async fn cache_truncate(&self) -> Result<(), CubeError> {
-        self.write_operation(move |db_ref, batch_pipe| {
+        self.write_operation_cache(move |db_ref, batch_pipe| {
             let jobs_table = CacheItemRocksTable::new(db_ref);
             let all_jobs = jobs_table.all_rows()?;
             for job in all_jobs.iter() {
@@ -3544,7 +3608,7 @@ impl MetaStore for RocksMetaStore {
     }
 
     async fn cache_delete(&self, key: String) -> Result<(), CubeError> {
-        self.write_operation(move |db_ref, batch_pipe| {
+        self.write_operation_cache(move |db_ref, batch_pipe| {
             let cache_schema = CacheItemRocksTable::new(db_ref.clone());
             let index_key = CacheItemIndexKey::ByKey(key);
             let row_opt =
